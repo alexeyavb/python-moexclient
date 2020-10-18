@@ -1,112 +1,126 @@
-import abc
-
+from moexclient import exceptions
 from moexclient.cmd import base
 
 
-class SecurityListBase(base.Lister):
-    def init_parser(self, parser):
-        parser.add_argument(
-            '--index',
-            help='List securities from the index'
-        )
-        parser.add_argument(
-            '--board',
-            help='List securities from the board'
-        )
-        parser.add_argument(
-            '--securities',
-            help='Securities filter, up to 10'
-        )
-        return parser
-
-    def _list(self, engine, market, parsed_args):
-        return self.app.moex.securities.list(
-            engine, market,
-            board=parsed_args.board,
-            index=parsed_args.index,
-            securities=parsed_args.securities,
-        )
+def get_primary_board(security_manager, secid):
+    security = security_manager.get(secid)
+    primary_board = None
+    for board in security['boards']:
+        if board['is_primary']:
+            return board['boardid']
+    msg = 'Cannot find a primary board: secid=%s' % secid
+    raise exceptions.MoexCommandError(msg)
 
 
-class SecurityFindBase(base.Lister):
+# NOTE: this command doesn't work well because iss returns duplicated objects,
+# and 'start' parameter confuses.
+class SecurityList(base.Lister):
     _default_columns = ('secid', 'isin', 'shortname', 'name', 'group', 'primary_boardid')
 
     def init_parser(self, parser):
         parser.add_argument(
-            'query',
-            help='Find a security query'
+            '--query',
+            help='Filter securities by query'
+        )
+        parser.add_argument(
+            '--engine',
+            help='Filter securities by engine'
+        )
+        parser.add_argument(
+            '--market',
+            help='Filter securities by market. If engine is not specified, '
+                 '"stock" engine is used.'
         )
         parser.add_argument(
             '--all',
             action='store_true',
-            help='Find non tranding securities'
+            help='Do not apply is_trading filtering'
         )
-        return parser
+        parser.add_argument(
+            '--start',
+            type=int,
+            help='Start index'
+        )
+        super(SpecList, self).init_parser(parser)
 
-    def _find(self, engine, market, parsed_args):
-        data = self.app.moex.securities.find(parsed_args.query,
-                                             engine=engine,
-                                             market=market)
-        # Somehow iss return deplicated objects in find API
+    def do_action(self, parsed_args):
+        is_trading = None
+        if not parsed_args.all:
+            is_trading = 1
+        data = self.app.moex.securities.list(query=parsed_args.query,
+                                             engine=parsed_args.engine,
+                                             market=parsed_args.market,
+                                             is_trading=is_trading,
+                                             start=parsed_args.start)
+
+        # Somehow iss can return deplicated objects. Remove duplicates:
         securities = data['securities']
         securities_set = set(tuple(sec.items()) for sec in securities)
         return [dict(sec) for sec in securities_set]
 
 
-class SecurityList(SecurityListBase):
-    _default_columns = ('SECID', 'BOARDID', 'SHORTNAME')
+class SecurityFind(base.Lister):
+    _default_columns = ('secid', 'isin', 'shortname', 'name', 'group', 'primary_boardid')
 
     def init_parser(self, parser):
         parser.add_argument(
+            'query',
+            help='Filter securities by query'
+        )
+        parser.add_argument(
             '--engine',
-            required=True,
-            help='Engine to list securities from'
+            help='Filter securities by engine'
         )
         parser.add_argument(
             '--market',
-            required=True,
-            help='Market to list securities from'
-        )
-        super(SecurityList, self).init_parser(parser)
-
-    def do_action(self, parsed_args):
-        data = self._list(parsed_args.engine, parsed_args.market, parsed_args)
-        return data['securities']
-
-
-class SecurityFind(SecurityFindBase):
-    def init_parser(self, parser):
-        parser.add_argument(
-            '--engine',
-            help='Engine to list securities from'
+            help='Filter securities by market. If engine is not specified, '
+                 '"stock" engine is used.'
         )
         parser.add_argument(
-            '--market',
-            help='Market to list securities from'
+            '--all',
+            action='store_true',
+            help='Do not apply is_trading filtering'
+        )
+        parser.add_argument(
+            '--start',
+            type=int,
+            help='Start index'
         )
         super(SecurityFind, self).init_parser(parser)
 
     def do_action(self, parsed_args):
-        return self._find(parsed_args.engine, parsed_args.market, parsed_args)
+        is_trading = None
+        if not parsed_args.all:
+            is_trading = 1
+        data = self.app.moex.securities.list(query=parsed_args.query,
+                                             engine=parsed_args.engine,
+                                             market=parsed_args.market,
+                                             is_trading=is_trading,
+                                             start=parsed_args.start)
+
+        # Somehow iss can return deplicated objects. Remove duplicates:
+        securities = data['securities']
+        securities_set = set(tuple(sec.items()) for sec in securities)
+        return [dict(sec) for sec in securities_set]
 
 
-class SecurityShow(base.ShowOne):
+class SecurityInfo(base.ShowOne):
     def init_parser(self, parser):
         parser.add_argument(
             'security',
             help='Security ID to show'
         )
+        super(SecurityInfo, self).init_parser(parser)
 
     def do_action(self, parsed_args):
         data = self.app.moex.securities.get(parsed_args.security)
         res = {}
         for item in data['description']:
             res[item['name']] = item['value']
-
         return res
 
 
-class SecurityBoardList(base.Lister):
+class SecurityInfoBoards(base.Lister):
     _default_columns = (
         'secid',
         'boardid',
@@ -121,128 +135,90 @@ class SecurityBoardList(base.Lister):
             'security',
             help='Security ID to show'
         )
+        parser.add_argument(
+            '--all',
+            action='store_true',
+            help='List not trading boards'
+        )
+        super(SecurityInfoBoards, self).init_parser(parser)
 
     def do_action(self, parsed_args):
+        is_traded = None
+        if not parsed_args.all:
+            is_traded = 1
         data = self.app.moex.securities.get(parsed_args.security)
-        return data['boards']
-        res = {}
-        print(data['boards'])
-        for item in data['boards']:
-            res[item['name']] = item['value']
-
-        return res
+        boards = data['boards']
+        if not parsed_args.all:
+            boards = filter(lambda item: item['is_traded'] == 1, boards)
+        return boards
 
 
-# Shares
-class StockSharesList(SecurityListBase):
-    _default_columns = (
-        'SECID',
-        'BOARDID',
-        'SHORTNAME',
-        'ISIN',
-        'PREVPRICE',
-        'PREVDATE'
-    )
+class SecurityMixin(object):
+    @staticmethod
+    def _check_single_security(secid, securities):
+        if not securities:
+            raise exceptions.MoexCommandError(
+                'No engine securities found for secid=%s' % secid)
+        if len(securities) > 1:
+            # this shouldn't happen in practice.
+            raise exceptions.MoexCommandError(
+                'More then one securities found for secid=%s' % secid)
+        return securities[0]
 
-    def do_action(self, parsed_args):
-        data = self._list('stock', 'shares', parsed_args)
-        return data['securities']
+    def _get_securities(self, secid, boardid=None):
+        security = self.app.moex.securities.get(secid)
+        for item in security['description']:
+            if item['name'] == 'GROUP':
+                engine, market = item['value'].split('_')
+                break
+        else:
+            msg = 'Cannot find a GROUP parameter: secid=%s' % secid
+            raise exceptions.MoexCommandError(msg)
 
+        if not boardid:
+            for board in security['boards']:
+                if board['is_primary']:
+                    boardid = board['boardid']
+                    break
+            else:
+                msg = 'Cannot find a primary board: secid=%s' % secid
+                raise exceptions.MoexCommandError(msg)
 
-class StockSharesFind(SecurityFindBase):
-    def do_action(self, parsed_args):
-        return self._find('stock', 'shares', parsed_args)
-
-
-# Bonds
-class StockBondsList(SecurityListBase):
-    _default_columns = (
-        'SECID',
-        'BOARDID',
-        'SHORTNAME',
-        'YIELDATPREVWAPRICE',
-        'COUPONPERCENT',
-        'COUPONVALUE',
-        'COUPONPERIOD',
-        'MATDATE',
-        'OFFERDATE'
-    )
-
-    def do_action(self, parsed_args):
-        data = self._list('stock', 'bonds', parsed_args)
-        return data['securities']
+        return self.app.moex.engine_securities.get(
+            engine, market, secid, board=boardid)
 
 
-class StockBondsFind(SecurityFindBase):
-    def do_action(self, parsed_args):
-        return self._find('stock', 'bonds', parsed_args)
-
-
-# Index
-class StockIndexList(SecurityListBase):
-    _default_columns = (
-        'SECID',
-        'BOARDID',
-        'SHORTNAME',
-        'ANNUALHIGH',
-        'ANNUALLOW',
-        'CURRENCYID'
-    )
-
-    def do_action(self, parsed_args):
-        data = self._list('stock', 'index', parsed_args)
-        return data['securities']
-
-
-class StockIndexFind(SecurityFindBase):
-    def do_action(self, parsed_args):
-        return self._find('stock', 'index', parsed_args)
-
-
-class MarketdataList(SecurityListBase):
-    def _default_columns(self, parsed_args):
-        if parsed_args.market == 'shares':
-            return ['SECID', 'BOARDID', 'OPEN', 'LOW', 'HIGH', 'LAST',
-                    'VOLTODAY', 'VALTODAY_RUR', 'UPDATETIME']
-        elif parsed_args.market == 'bonds':
-            return ['SECID', 'BOARDID', 'OPEN', 'LOW', 'HIGH', 'LAST',
-                    'VOLTODAY', 'VALTODAY_RUR', 'UPDATETIME']
-
-    def do_action(self, parsed_args):
-        data = self._list(parsed_args)
-        return data['marketdata']
-
-
-class MarketdataShow(base.ShowOne):
-    def get_parser(self, prog_name):
-        parser = super(MarketdataShow, self).get_parser(prog_name)
+class SecurityShow(base.ShowOne, SecurityMixin):
+    def init_parser(self, parser):
         parser.add_argument(
             'security',
             help='Security ID to show'
         )
         parser.add_argument(
             '--board',
-            help=''
+            help='Security board ID'
         )
-        return parser
+        super(SecurityShow, self).init_parser(parser)
 
     def do_action(self, parsed_args):
-        data = self.app.moex.securities.get(parsed_args.security)
+        secid = parsed_args.security
+        data = self._get_securities(secid, boardid=parsed_args.board)
+        return self._check_single_security(secid, data['securities'])
 
-        group = None
-        for item in data['description']:
-            if item['name'] == 'GROUP':
-                group = item['value']
-                break
-        if not group:
-            raise Exception('No group')
 
-        engine, market = group.split('_')
-        data = self.app.moex.securities.get_by_market(parsed_args.security, engine, market, board=parsed_args.board)
-        if len(data['marketdata']) > 1:
-            boards = [m['BOARDID'] for m in data['marketdata']]
-            raise Exception('More then one board for %s was found. '
-                            'Use "list" command or specify the --borad: %s'
-                            % (parsed_args.security, ', '.join(boards)))
+class SecurityMarketData(base.ShowOne, SecurityMixin):
+    def init_parser(self, parser):
+        parser.add_argument(
+            'security',
+            help='Security ID to show'
+        )
+        parser.add_argument(
+            '--board',
+            help='Security board ID'
+        )
+        super(SecurityMarketData, self).init_parser(parser)
 
-        return data['marketdata'][0]
+    def do_action(self, parsed_args):
+        secid = parsed_args.security
+        data = self._get_securities(secid, boardid=parsed_args.board)
+        return self._check_single_security(secid, data['marketdata'])

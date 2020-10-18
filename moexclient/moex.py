@@ -14,6 +14,7 @@ from moexclient.cmd import engine
 from moexclient.cmd import index
 from moexclient.cmd import market
 from moexclient.cmd import securities
+from moexclient.cmd import engine_securities
 
 LOG = logging.getLogger(__name__)
 
@@ -22,22 +23,25 @@ COMMANDS_MAP = {
     'market_list': market.MarketList,
     'board_list': board.BoardList,
 
-    'security_list': securities.SecurityList,
+    # NOTE: 'security_list' command doesn't work well because iss returns
+    # duplicated objects.
+    # 'security_list': specs.SpecList,
     'security_find': securities.SecurityFind,
+    'security_info': securities.SecurityInfo,
+    'security_info-boards': securities.SecurityInfoBoards,
     'security_show': securities.SecurityShow,
-    'security_board-list': securities.SecurityBoardList,
+    'security_marketdata': securities.SecurityMarketData,
 
-    'stock_bonds_list': securities.StockBondsList,
-    'stock_bonds_find': securities.StockBondsFind,
+    'stock_bonds_list': engine_securities.StockBondsList,
+    # 'stock_bonds_show': engine_securities.StockBoardShow,
 
-    'stock_shares_list': securities.StockSharesList,
-    'stock_shares_find': securities.StockSharesFind,
+    'stock_shares_list': engine_securities.StockSharesList,
+    # 'stock_shares_show': engine_securities.StockSharesShow,
 
-    'stock_index_list': securities.StockIndexList,
-    'stock_index_find': securities.StockIndexFind,
-    # 'marketdata_list': securities.MarketdataList,
-    # 'marketdata_show': securities.MarketdataShow,
-    # 'index_list': index.IndexList,
+    'stock_index_list': engine_securities.StockIndexList,
+    # 'stock_index_show': engine_securities.StockIndexList,
+    # 'marketdata_list': engine_securities.MarketdataList,
+    # 'marketdata_show': engine_securities.MarketdataShow,
 }
 
 

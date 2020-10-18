@@ -9,6 +9,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection
 
+from moexclient import exceptions
+
 LOG = logging.getLogger(__name__)
 
 
@@ -164,7 +166,8 @@ class MoexClient(object):
         self.histoty = HistotyClient(session)
         self.markets = MarketManager(session)
         self.boards = BoardsManager(session)
-        self.securities = SecuritiesManager(session)
+        self.securities = SecurityManager(session)
+        self.engine_securities = EngineSecurityManager(session)
         self.indices = IndexManager(session)
 
 
@@ -188,8 +191,9 @@ class BaseClient(object):
         # if json_extended:
         #     url += '&iss.json=extended'
 
-        for kv in params.items():
-            url += '&%s=%s' % kv
+        for key, value in params.items():
+            if value is not None:
+                url += '&%s=%s' % (key, value)
         data = self.request('GET', url)
 
         if not isinstance(data, dict):
@@ -208,7 +212,7 @@ class BaseClient(object):
 class HistotyClient(BaseClient):
     def get(self, engine='stock', market='stocks', board=None, security=None, data=None):
         if not board:
-            raise Exception('board is not specified')
+            raise exceptions.MoexError('board is not specified')
         return self._get('/history/engines/%s/markets/%s/boards/%s/securities')
 
 
@@ -227,7 +231,55 @@ class BoardsManager(BaseClient):
         return self._get('/engines/%s/markets/%s/boards' % (engine, market))
 
 
-class SecuritiesManager(BaseClient):
+class SecurityManager(BaseClient):
+    def list(self, query=None, engine=None, market=None, is_trading=None,
+             lang='en', start=None):
+        params = {'lang': lang}
+        if query:
+            params['q'] = query
+        if is_trading is not None:
+            params['is_trading'] = is_trading
+        if engine:
+            params['engine'] = engine
+        if market:
+            params['market'] = market
+        if start:
+            params['start'] = start
+        return self._get('/securities', **params)
+
+    def get(self, secid, lang='en', **params):
+        data = self._get('/securities/%s' % secid, lang=lang, **params)
+        if not data['description']:
+            raise exceptions.MoexError('Cannot find a security: %s' % secid)
+        return data
+
+
+class EngineSecurityManager(BaseClient):
+    def _get_url(self, engine, market, board=None):
+        url = '/engines/%s/markets/%s' % (engine, market)
+        if board:
+            url += '/boards/%s' % board
+        url += '/securities'
+        return url
+
+    def list(self, engine, market, lang='ru', board=None, **params):
+        url = self._get_url(engine, market, board=board)
+        return self._get(url, lang=lang, **params)
+
+    def get(self, engine, market, secid, lang='ru', board=None, **params):
+        url = self._get_url(engine, market, board=board)
+        url += '/%s' % secid
+        data = self._get(url, lang=lang, **params)
+        if not data['securities']:
+            msg = ('Cannot find a security %r in %s_%s'
+                   % (secid, engine, market))
+            if board:
+                msg += ' (board=%s)' % board
+            raise exceptions.MoexError(msg)
+        return data
+
+
+class SecuritiesManager_1(BaseClient):
     def find(self, query, engine=None, market=None, all=False):
         params = {'q': query}
         if not all:
