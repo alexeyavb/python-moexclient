@@ -1,25 +1,36 @@
-import copy
-
+from moexclient import exceptions
 from moexclient.cmd import base
+from moexclient.cmd import defaults
 
 
 class BoardList(base.Lister):
-    def get_parser(self, prog_name):
-        parser = super(BoardList, self).get_parser(prog_name)
+    def init_parser(self, parser):
+        parser.add_argument(
+            '--engine',
+            metavar='<engine>',
+            default=defaults.engine,
+            help=('Engine to list markets from [Env: MOEX_ENGINE].')
+        )
         parser.add_argument(
             '--market',
-            required=True,
-            help='Market to list boards from.',
+            metavar='<market>',
+            default=defaults.market,
+            help=('Market to list boards from [Env: MOEX_MARKET].')
         )
         parser.add_argument(
             '--all',
             action='store_true',
-            help='Show all boards, not only traded ones.',
+            help='Show all boards.',
         )
-        return parser
 
     def do_action(self, parsed_args):
-        data = self.app.moex.boards.list(parsed_args.market)
+        if not parsed_args.engine:
+            raise exceptions.MoexValueError('Missing --engine value')
+        if not parsed_args.market:
+            raise exceptions.MoexValueError('Missing --market value')
+
+        data = self.app.moex.boards.list(
+            parsed_args.engine, parsed_args.market)
         data = data['boards']
 
         if not parsed_args.all:

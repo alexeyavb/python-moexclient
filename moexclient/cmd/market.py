@@ -1,9 +1,23 @@
+from moexclient import exceptions
 from moexclient.cmd import base
+from moexclient.cmd import defaults
 
 
 class MarketList(base.Lister):
-    def _default_columns(self, parsed_args):
-        return ['NAME', 'title']
+    _default_columns = (
+        'NAME',
+        'title'
+    )
+
+    def init_parser(self, parser):
+        parser.add_argument(
+            '--engine',
+            metavar='<engine>',
+            default=defaults.engine,
+            help=('Engine to list markets from [Env: MOEX_ENGINE].')
+        )
 
     def do_action(self, parsed_args):
-        return self.app.moex.markets.list()['markets']
+        if not parsed_args.engine:
+            raise exceptions.MoexValueError('Missing --engine value')
+        return self.app.moex.markets.list(parsed_args.engine)['markets']

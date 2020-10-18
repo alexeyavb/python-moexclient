@@ -1,21 +1,17 @@
+import abc
+
 from moexclient.cmd import base
 
 
-class SecuritiesBase(base.Lister):
-    def get_parser(self, prog_name):
-        parser = super(SecuritiesBase, self).get_parser(prog_name)
+class SecurityListBase(base.Lister):
+    def init_parser(self, parser):
         parser.add_argument(
-            '--market',
-            required=True,
-            help='Market to list securities from'
+            '--index',
+            help='List securities from the index'
         )
         parser.add_argument(
             '--board',
-            help='Board ID'
-        )
-        parser.add_argument(
-            '--index',
-            help='List securities only from index'
+            help='List securities from the board'
         )
         parser.add_argument(
             '--securities',
@@ -23,48 +19,86 @@ class SecuritiesBase(base.Lister):
         )
         return parser
 
-    def _list_securities(self, parsed_args):
+    def _list(self, engine, market, parsed_args):
         return self.app.moex.securities.list(
-            parsed_args.market, board=parsed_args.board,
+            engine, market,
+            board=parsed_args.board,
             index=parsed_args.index,
             securities=parsed_args.securities,
         )
 
 
-class SecurityFind(base.Lister):
-    def _default_columns(self, parsed_args):
-        return ['secid', 'shortname', 'name', 'group', 'primary_boardid']
+class SecurityFindBase(base.Lister):
+    _default_columns = ('secid', 'isin', 'shortname', 'name', 'group', 'primary_boardid')
 
-    def get_parser(self, prog_name):
-        parser = super(SecurityFind, self).get_parser(prog_name)
+    def init_parser(self, parser):
         parser.add_argument(
             'query',
-            help='Market to list securities from'
+            help='Find a security query'
         )
         parser.add_argument(
             '--all',
-            action="store_true",
-            help='Market to list securities from'
+            action='store_true',
+            help='Find non tranding securities'
         )
         return parser
 
+    def _find(self, engine, market, parsed_args):
+        data = self.app.moex.securities.find(parsed_args.query,
+                                             engine=engine,
+                                             market=market)
+        # Somehow iss return deplicated objects in find API
+        securities = data['securities']
+        securities_set = set(tuple(sec.items()) for sec in securities)
+        return [dict(sec) for sec in securities_set]
+
+
+class SecurityList(SecurityListBase):
+    _default_columns = ('SECID', 'BOARDID', 'SHORTNAME')
+
+    def init_parser(self, parser):
+        parser.add_argument(
+            '--engine',
+            required=True,
+            help='Engine to list securities from'
+        )
+        parser.add_argument(
+            '--market',
+            required=True,
+            help='Market to list securities from'
+        )
+        super(SecurityList, self).init_parser(parser)
+
     def do_action(self, parsed_args):
-        data = self.app.moex.securities.find(parsed_args.query, all=parsed_args.all)
+        data = self._list(parsed_args.engine, parsed_args.market, parsed_args)
         return data['securities']
 
 
+class SecurityFind(SecurityFindBase):
+    def init_parser(self, parser):
+        parser.add_argument(
+            '--engine',
+            help='Engine to list securities from'
+        )
+        parser.add_argument(
+            '--market',
+            help='Market to list securities from'
+        )
+        super(SecurityFind, self).init_parser(parser)
+
+    def do_action(self, parsed_args):
+        return self._find(parsed_args.engine, parsed_args.market, parsed_args)
+
+
 class SecurityShow(base.ShowOne):
-    def get_parser(self, prog_name):
-        parser = super(SecurityShow, self).get_parser(prog_name)
+    def init_parser(self, parser):
         parser.add_argument(
             'security',
             help='Security ID to show'
         )
-        return parser
 
     def do_action(self, parsed_args):
         data = self.app.moex.securities.get(parsed_args.security)
-
         res = {}
         for item in data['description']:
             res[item['name']] = item['value']
@@ -72,24 +106,100 @@ class SecurityShow(base.ShowOne):
         return res
 
 
-class SecurityList(SecuritiesBase):
-    def _default_columns(self, parsed_args):
-        if parsed_args.market == 'index':
-            return ['SECID', 'BOARDID', 'SHORTNAME', 'ANNUALHIGH', 'ANNUALLOW',
-                    'CURRENCYID']
-        elif parsed_args.market == 'shares':
-            return ['SECID', 'BOARDID', 'SHORTNAME', 'ISIN', 'PREVPRICE',
-                    'PREVDATE']
-        elif parsed_args.market == 'bonds':
-            return ['SECID', 'BOARDID', 'SHORTNAME', 'YIELDATPREVWAPRICE', 'COUPONPERCENT',
-                    'COUPONVALUE', 'COUPONPERIOD', 'MATDATE', 'OFFERDATE']
+class SecurityBoardList(base.Lister):
+    _default_columns = (
+        'secid',
+        'boardid',
+        'title',
+        'is_primary',
+        'engine',
+        'market'
+    )
+
+    def init_parser(self, parser):
+        parser.add_argument(
+            'security',
+            help='Security ID to show'
+        )
 
     def do_action(self, parsed_args):
-        data = self._list_securities(parsed_args)
+        data = self.app.moex.securities.get(parsed_args.security)
+        return data['boards']
+        res = {}
+        print(data['boards'])
+        for item in data['boards']:
+            res[item['name']] = item['value']
+
+        return res
+
+
+# Shares
+class StockSharesList(SecurityListBase):
+    _default_columns = (
+        'SECID',
+        'BOARDID',
+        'SHORTNAME',
+        'ISIN',
+        'PREVPRICE',
+        'PREVDATE'
+    )
+
+    def do_action(self, parsed_args):
+        data = self._list('stock', 'shares', parsed_args)
         return data['securities']
 
 
-class MarketdataList(SecuritiesBase):
+class StockSharesFind(SecurityFindBase):
+    def do_action(self, parsed_args):
+        return self._find('stock', 'shares', parsed_args)
+
+
+# Bonds
+class StockBondsList(SecurityListBase):
+    _default_columns = (
+        'SECID',
+        'BOARDID',
+        'SHORTNAME',
+        'YIELDATPREVWAPRICE',
+        'COUPONPERCENT',
+        'COUPONVALUE',
+        'COUPONPERIOD',
+        'MATDATE',
+        'OFFERDATE'
+    )
+
+    def do_action(self, parsed_args):
+        data = self._list('stock', 'bonds', parsed_args)
+        return data['securities']
+
+
+class StockBondsFind(SecurityFindBase):
+    def do_action(self, parsed_args):
+        return self._find('stock', 'bonds', parsed_args)
+
+
+# Index
+class StockIndexList(SecurityListBase):
+    _default_columns = (
+        'SECID',
+        'BOARDID',
+        'SHORTNAME',
+        'ANNUALHIGH',
+        'ANNUALLOW',
+        'CURRENCYID'
+    )
+
+    def do_action(self, parsed_args):
+        data = self._list('stock', 'index', parsed_args)
+        return data['securities']
+
+
+class StockIndexFind(SecurityFindBase):
+    def do_action(self, parsed_args):
+        return self._find('stock', 'index', parsed_args)
+
+
+class MarketdataList(SecurityListBase):
     def _default_columns(self, parsed_args):
         if parsed_args.market == 'shares':
             return ['SECID', 'BOARDID', 'OPEN', 'LOW', 'HIGH', 'LAST',
@@ -99,7 +209,7 @@ class MarketdataList(SecuritiesBase):
                     'VOLTODAY', 'VALTODAY_RUR', 'UPDATETIME']
 
     def do_action(self, parsed_args):
-        data = self._list_securities(parsed_args)
+        data = self._list(parsed_args)
         return data['marketdata']
 
 

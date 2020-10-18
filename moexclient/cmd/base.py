@@ -4,11 +4,11 @@ from cliff import lister
 
 
 class Lister(lister.Lister):
-    def _default_columns(self, parsed_args):
-        return []
+    _default_columns = tuple()
 
     def get_parser(self, prog_name):
         parser = super(Lister, self).get_parser(prog_name)
+        self.init_parser(parser)
         arg_group = parser.add_argument_group(
             title="additional arguments",
             description="additional vinfra arguments"
@@ -20,11 +20,14 @@ class Lister(lister.Lister):
         )
         return parser
 
+    def init_parser(self, parser):
+        pass
+
     def take_action(self, parsed_args):
         items = self.do_action(parsed_args)
 
         all_columns = items[0].keys() if items else []
-        default_columns = self._default_columns(parsed_args)
+        default_columns = list(self._default_columns)
         if not default_columns:
             default_columns = all_columns
 
@@ -38,9 +41,6 @@ class Lister(lister.Lister):
             row = []
             for column in columns:
                 value = item[column]
-                value_formatter = getattr(self, '_%s_formatter' % column.lower(), None)
-                if value_formatter:
-                    value = value_formatter(parsed_args.formatter, value)
                 row.append(value)
 
             rows.append(row)
@@ -48,11 +48,14 @@ class Lister(lister.Lister):
 
 
 class ShowOne(show.ShowOne):
+    def get_parser(self, prog_name):
+        parser = super(ShowOne, self).get_parser(prog_name)
+        self.init_parser(parser)
+        return parser
+
+    def init_parser(self, parser):
+        pass
+
     def take_action(self, parsed_args):
         data = self.do_action(parsed_args)
         return self.dict2columns(data)
-
-
-class Command(command.Command):
-    def take_action(self, parsed_args):
-        return self.do_action(parsed_args)

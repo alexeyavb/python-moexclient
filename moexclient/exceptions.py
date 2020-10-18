@@ -1,0 +1,2 @@
+class MoexValueError(ValueError):
+    pass

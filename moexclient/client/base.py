@@ -160,6 +160,7 @@ class Session(object):
 class MoexClient(object):
     def __init__(self):
         session = Session('http://iss.moex.com/iss')
+        self.engines = EngineManager(session)
         self.histoty = HistotyClient(session)
         self.markets = MarketManager(session)
         self.boards = BoardsManager(session)
@@ -175,7 +176,7 @@ class BaseClient(object):
         kwargs.setdefault('timeout', (None, 100))
         response = self.session.request(method, url, **kwargs)
         content_type = response.headers.get('Content-Type')
-        if 'application/json' in content_type.lower() and response.text:
+        if 'application/json'.lower() in content_type.lower():
             data = response.json()
         else:
             data = response.text
@@ -191,11 +192,15 @@ class BaseClient(object):
             url += '&%s=%s' % kv
         data = self.request('GET', url)
 
+        if not isinstance(data, dict):
+            return data
+
         result = {}
         for group, data in data.items():
             columns, values = data['columns'], data['data']
-            list(dict(zip(columns, vals)) for vals in values)
-            result[group] = [dict(zip(columns, vals)) for vals in values]
+            result[group] = []
+            for vals in values:
+                result[group].append(dict(zip(columns, vals)))
 
         return result
 
@@ -207,21 +212,30 @@ class HistotyClient(BaseClient):
         return self._get('/history/engines/%s/markets/%s/boards/%s/securities')
 
 
+class EngineManager(BaseClient):
+    def list(self):
+        return self._get('/engines')
+
+
 class MarketManager(BaseClient):
-    def list(self, engine='stock'):
+    def list(self, engine):
         return self._get('/engines/%s/markets' % engine)
 
 
 class BoardsManager(BaseClient):
-    def list(self, market, engine='stock'):
+    def list(self, engine, market):
         return self._get('/engines/%s/markets/%s/boards' % (engine, market))
 
 
 class SecuritiesManager(BaseClient):
-    def find(self, query, all=False):
+    def find(self, query, engine=None, market=None, all=False):
         params = {'q': query}
         if not all:
             params['is_trading'] = 1
+        if engine:
+            params['engine'] = engine
+        if market:
+            params['market'] = market
         return self._get('/securities', **params)
 
     def get(self, secid, **params):
@@ -238,7 +252,7 @@ class SecuritiesManager(BaseClient):
         url += '/securities/%s' % secid
         return self._get(url)
 
-    def list(self, market, engine='stock', board=None, index=None, securities=None):
+    def list(self, engine, market, board=None, index=None, securities=None):
         if board:
             url = '/engines/%s/markets/%s/boards/%s/securities' % (engine, market, board)
         else:
