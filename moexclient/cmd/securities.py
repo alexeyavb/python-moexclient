@@ -165,28 +165,6 @@ class SecurityMixin(object):
                 'More then one securities found for secid=%s' % secid)
         return securities[0]
 
-    def _get_securities(self, secid, boardid=None):
-        security = self.app.moex.securities.get(secid)
-        for item in security['description']:
-            if item['name'] == 'GROUP':
-                engine, market = item['value'].split('_')
-                break
-        else:
-            msg = 'Cannot find a GROUP parameter: secid=%s' % secid
-            raise exceptions.MoexCommandError(msg)
-
-        if not boardid:
-            for board in security['boards']:
-                if board['is_primary']:
-                    boardid = board['boardid']
-                    break
-            else:
-                msg = 'Cannot find a primary board: secid=%s' % secid
-                raise exceptions.MoexCommandError(msg)
-
-        return self.app.moex.engine_securities.get(
-            engine, market, secid, board=boardid)
-
 
 class SecurityShow(base.ShowOne, SecurityMixin):
     def init_parser(self, parser):
@@ -202,7 +180,7 @@ class SecurityShow(base.ShowOne, SecurityMixin):
 
     def do_action(self, parsed_args):
         secid = parsed_args.security
-        data = self._get_securities(secid, boardid=parsed_args.board)
+        data = self.app.moex.get_securities(secid, boardid=parsed_args.board)
         return self._check_single_security(secid, data['securities'])
 
 
@@ -220,5 +198,5 @@ class SecurityMarketData(base.ShowOne, SecurityMixin):
 
     def do_action(self, parsed_args):
         secid = parsed_args.security
-        data = self._get_securities(secid, boardid=parsed_args.board)
+        data = self.app.moex.get_securities(secid, boardid=parsed_args.board)
         return self._check_single_security(secid, data['marketdata'])

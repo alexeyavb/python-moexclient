@@ -170,6 +170,27 @@ class MoexClient(object):
         self.engine_securities = EngineSecurityManager(session)
         self.indices = IndexManager(session)
 
+    def get_securities(self, secid, boardid):
+        security = self.securities.get(secid)
+        for item in security['description']:
+            if item['name'] == 'GROUP':
+                engine, market = item['value'].split('_')
+                break
+        else:
+            msg = 'Cannot find a GROUP parameter: secid=%s' % secid
+            raise exceptions.MoexCommandError(msg)
+
+        if not boardid:
+            for board in security['boards']:
+                if board['is_primary']:
+                    boardid = board['boardid']
+                    break
+            else:
+                msg = 'Cannot find a primary board: secid=%s' % secid
+                raise exceptions.MoexCommandError(msg)
+
+        return self.engine_securities.get(engine, market, secid, board=boardid)
+
 
 class BaseClient(object):
     def __init__(self, session):
